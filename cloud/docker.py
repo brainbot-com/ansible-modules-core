@@ -204,6 +204,13 @@ options:
     default: ''
     aliases: []
     version_added: "1.8"
+  restart_policy:
+    description:
+      - Set the restart policy for the containers (always, on-failure[:<retrycount>]). Requires docker >= 1.2.
+    required: false
+    default: ''
+    aliases: []
+    version_added: "1.8"
 
 author: Cove Schneider, Joshua Conner, Pavel Antonov
 requirements: [ "docker-py >= 0.3.0", "docker >= 0.10.0" ]
@@ -323,6 +330,13 @@ Create a container with no networking:
   tasks:
   docker: image=namespace/image_name net=none
 
+Create a container and let it try 5 times to restart on-failure:
+
+ - hosts: web
+   sudo: yes
+   tasks:
+   docker: image=namespace/image_name restart_policy=on-failure:5
+
 '''
 
 HAS_DOCKER_PY = True
@@ -388,7 +402,7 @@ class DockerManager:
                 if len(parts) == 2:
                     self.volumes[parts[1]] = {}
                     self.binds[parts[0]] = parts[1]
-                # with bind mode 
+                # with bind mode
                 elif len(parts) == 3:
                     if parts[2] not in ['ro', 'rw']:
                         self.module.fail_json(msg='bind mode needs to either be "ro" or "rw"')
@@ -657,6 +671,14 @@ class DockerManager:
             params['dns'] = self.module.params.get('dns')
             params['volumes_from'] = self.module.params.get('volumes_from')
 
+        if docker.utils.compare_version('1.14', self.client.version()['ApiVersion']) >= 0 and hasattr(docker, '__version__') and docker.__version__ > '0.5.0':
+            policy = self.module.params.get('restart_policy')
+            count = '0'
+            if ':' in policy:
+                policy, count = policy.split(':')
+            if policy in ['always', 'on-failure']:
+                params['restart_policy'] = dict(Name=policy, MaximumRetryCount=int(count))
+
         for i in containers:
             self.client.start(i['Id'], **params)
             self.increment_counter('started')
@@ -740,7 +762,8 @@ def main():
             tty             = dict(default=False, type='bool'),
             lxc_conf        = dict(default=None, type='list'),
             name            = dict(default=None),
-            net             = dict(default=None)
+            net             = dict(default=None),
+            restart_policy  = dict(required=False, default='')
         )
     )
 
